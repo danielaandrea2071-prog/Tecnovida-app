@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+:root {
+  --tv-primary: #0A2540;
+  --tv-accent: #00C4A0;
+  --tv-accent2: #FF6B35;
+  --font-display: 'Space Grotesk', sans-serif;
+}
+* { box-sizing: border-box; }
+.font-display { font-family: var(--font-display); }
+.sidebar-nav::-webkit-scrollbar { width: 4px; }
+.sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+.tv-table tr:hover td { background: #F8FAFC; }
