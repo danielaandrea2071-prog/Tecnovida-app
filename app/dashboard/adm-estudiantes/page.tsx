@@ -1,10 +1,9 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { Card, SectionTitle, Badge, Table, Td, Avatar, StatCard } from '@/components/ui'
-import { supabase } from '@/lib/supabase' // AJUSTA esta ruta si tu cliente de Supabase vive en otro archivo
 import Link from 'next/link'
+import { Card, SectionTitle, Badge, Table, Td, Avatar, StatCard } from '@/components/ui'
+import { supabase } from '@/lib/supabase'
 
-// AJUSTA el nombre de la tabla si en tu base de datos se llama distinto (ej. 'students')
 const TABLE = 'estudiantes'
 
 type Estudiante = {
@@ -21,17 +20,37 @@ type Estudiante = {
 export default function AdmEstudiantesPage() {
   const [search, setSearch] = useState('')
   const [estudiantes, setEstudiantes] = useState<Estudiante[]>([])
+  const [totalGeneral, setTotalGeneral] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [nuevo, setNuevo] = useState({ nombre: '', correo: '', carrera: '', cuatrimestre: 'I' })
 
-  async function cargarEstudiantes() {
+  async function cargarTodos() {
+    const { data, error } = await supabase.from(TABLE).select('*').order('nombre')
+    if (!error && data) {
+      setTotalGeneral(data.length)
+      if (!search) setEstudiantes(data as Estudiante[])
+    }
+  }
+
+  // VULNERABLE A PROPOSITO: la caja "Buscar nombre o ID..." de esta pantalla
+  // llama a una funcion de Postgres que arma el SQL por concatenacion.
+  // No hay sentencias preparadas ni validacion de entrada.
+  async function buscar(termino: string) {
     setLoading(true)
     setError(null)
-    const { data, error } = await supabase.from(TABLE).select('*').order('nombre')
+    if (!termino) {
+      await cargarTodos()
+      setLoading(false)
+      return
+    }
+    const { data, error } = await supabase.rpc('buscar_estudiantes_vulnerable', {
+      termino,
+    })
     if (error) {
       setError('Error de base de datos: ' + error.message)
+      setEstudiantes([])
     } else {
       setEstudiantes(data as Estudiante[])
     }
@@ -39,14 +58,14 @@ export default function AdmEstudiantesPage() {
   }
 
   useEffect(() => {
-    cargarEstudiantes()
+    cargarTodos().finally(() => setLoading(false))
   }, [])
 
-  const filtered = estudiantes.filter(
-  (e) => e.nombre.toLowerCase().includes(search.toLowerCase()) || String(e.id).includes(search)
-)
+  useEffect(() => {
+    const t = setTimeout(() => buscar(search), 350)
+    return () => clearTimeout(t)
+  }, [search])
 
-  const total = estudiantes.length
   const activos = estudiantes.filter((e) => e.estado === 'Activo').length
   const condicionales = estudiantes.filter((e) => e.estado === 'Condicional').length
   const suspendidos = estudiantes.filter((e) => e.estado === 'Suspendido').length
@@ -73,7 +92,8 @@ export default function AdmEstudiantesPage() {
     }
     setShowForm(false)
     setNuevo({ nombre: '', correo: '', carrera: '', cuatrimestre: 'I' })
-    cargarEstudiantes()
+    cargarTodos()
+    buscar(search)
   }
 
   async function suspenderEstudiante(id: string, nombre: string) {
@@ -83,14 +103,14 @@ export default function AdmEstudiantesPage() {
       alert('No se pudo suspender: ' + error.message)
       return
     }
-    cargarEstudiantes()
+    cargarTodos()
+    buscar(search)
   }
 
   async function exportarExcel() {
-    // Requiere: npm install xlsx
     const XLSX = await import('xlsx')
     const ws = XLSX.utils.json_to_sheet(
-      filtered.map((e) => ({
+      estudiantes.map((e) => ({
         ID: e.id,
         Nombre: e.nombre,
         Correo: e.correo,
@@ -106,13 +126,10 @@ export default function AdmEstudiantesPage() {
     XLSX.writeFile(wb, 'estudiantes_tecnovida.xlsx')
   }
 
-  if (loading) return <Card>Cargando estudiantes...</Card>
-  if (error) return <Card><p className="text-red-500 text-sm">{error}</p></Card>
-
   return (
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon="🎓" label="Total estudiantes" value={String(total)} iconBg="teal" />
+        <StatCard icon="🎓" label="Total estudiantes" value={String(totalGeneral)} iconBg="teal" />
         <StatCard icon="✅" label="Activos" value={String(activos)} iconBg="blue" />
         <StatCard icon="⚠️" label="Condicionales" value={String(condicionales)} iconBg="orange" />
         <StatCard icon="🚫" label="Suspendidos" value={String(suspendidos)} iconBg="purple" />
@@ -146,7 +163,7 @@ export default function AdmEstudiantesPage() {
 
       <Card>
         <div className="flex items-center justify-between mb-5 gap-3 flex-wrap">
-          <SectionTitle>Estudiantes registrados (mostrando {filtered.length} de {total})</SectionTitle>
+          <SectionTitle>Estudiantes registrados (mostrando {estudiantes.length} de {totalGeneral})</SectionTitle>
           <div className="flex gap-2 flex-wrap">
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="🔍 Buscar nombre o ID..."
               className="px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#00C4A0] w-52" />
@@ -154,8 +171,12 @@ export default function AdmEstudiantesPage() {
             <button onClick={exportarExcel} className="px-3 py-2 border border-slate-200 rounded-lg text-sm hover:bg-slate-50">📊 Excel</button>
           </div>
         </div>
+
+        {loading && <p className="text-sm text-slate-400 mb-3">Buscando...</p>}
+        {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
+
         <Table headers={['Estudiante', 'ID', 'Carrera', 'Cuatrim.', 'Índice', 'Créditos', 'Estado', 'Acciones']}>
-          {filtered.map((e) => (
+          {estudiantes.map((e) => (
             <tr key={e.id}>
               <Td>
                 <div className="flex items-center gap-2">
