@@ -2,16 +2,11 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { Card, SectionTitle, Avatar, Badge } from '@/components/ui'
-import { supabase } from '@/lib/supabase'
 
 // VULNERABLE A PROPOSITO:
-// 1) IDOR (lectura): no verifica si el usuario logueado tiene permiso
-//    para ver este ID. Cualquiera puede cambiar el numero en la URL
-//    (/dashboard/perfil/1, /dashboard/perfil/2, ...) y ver cualquier perfil.
-// 2) IDOR (escritura): tampoco verifica permiso para EDITAR. Cualquier
-//    usuario autenticado puede modificar el indice, creditos y estado
-//    de cualquier otro estudiante, no solo el suyo.
-// 3) XSS almacenado: la bio se guarda tal cual y se renderiza con
+// 1) IDOR (lectura y escritura): la ruta /api/estudiantes/[id] no verifica
+//    si el usuario logueado tiene permiso sobre este id.
+// 2) XSS almacenado: la bio se guarda tal cual y se renderiza con
 //    dangerouslySetInnerHTML, sin sanitizar.
 
 type Estudiante = {
@@ -39,9 +34,9 @@ export default function PerfilVulnerablePage() {
 
   async function cargar() {
     setLoading(true)
-    // Sin ningun chequeo de "es este el propio usuario" o "es admin"
-    const { data } = await supabase.from('estudiantes').select('*').eq('id', id).maybeSingle()
-    const e = data as Estudiante
+    const res = await fetch('/api/estudiantes/' + id)
+    const json = await res.json()
+    const e = json.data as Estudiante | null
     setEstudiante(e)
     setBioDraft(e?.bio || '')
     setIndiceDraft(String(e?.indice ?? ''))
@@ -55,7 +50,11 @@ export default function PerfilVulnerablePage() {
   }, [id])
 
   async function guardarBio() {
-    await supabase.from('estudiantes').update({ bio: bioDraft }).eq('id', id)
+    await fetch('/api/estudiantes/' + id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bio: bioDraft }),
+    })
     setSavedMsg('Bio actualizada')
     cargar()
   }
@@ -63,16 +62,18 @@ export default function PerfilVulnerablePage() {
   // VULNERABLE: cualquier usuario autenticado puede llamar esto sobre
   // cualquier id, sin que el servidor verifique propiedad ni rol.
   async function guardarAcademico() {
-    const { error } = await supabase
-      .from('estudiantes')
-      .update({
+    const res = await fetch('/api/estudiantes/' + id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         indice: parseFloat(indiceDraft) || 0,
         creditos: parseInt(creditosDraft) || 0,
         estado: estadoDraft,
-      })
-      .eq('id', id)
-    if (error) {
-      setSavedMsg('Error: ' + error.message)
+      }),
+    })
+    const json = await res.json()
+    if (!res.ok) {
+      setSavedMsg('Error: ' + json.error)
     } else {
       setSavedMsg('Registro académico actualizado sin verificación de permisos')
     }
@@ -153,7 +154,6 @@ export default function PerfilVulnerablePage() {
 
       <div className="mb-3">
         <p className="text-sm font-semibold mb-1">Bio (se muestra sin sanitizar):</p>
-        {/* Renderizado inseguro a proposito */}
         <div
           className="border border-slate-200 rounded-lg p-3 text-sm min-h-[60px]"
           dangerouslySetInnerHTML={{ __html: estudiante.bio || '<em>Sin bio</em>' }}

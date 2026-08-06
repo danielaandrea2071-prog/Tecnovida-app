@@ -45,7 +45,7 @@ export default function AdmEstudiantesPage() {
       setLoading(false)
       return
     }
-    const { data, error } = await supabase.rpc('buscar_estudiantes_vulnerable', {
+    const { data, error } = await supabase.rpc('buscar_estudiantes_vulnerable',  {
       termino,
     })
     if (error) {
