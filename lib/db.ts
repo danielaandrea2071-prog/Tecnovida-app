@@ -1,3 +1,5 @@
+import { Pool } from 'pg'
+
 // En AWS, estas variables vienen de variables de entorno del EC2
 // (nunca hardcodeadas), idealmente inyectadas desde Secrets Manager.
 const pool = new Pool({
